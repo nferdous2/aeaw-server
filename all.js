@@ -3,14 +3,15 @@ const app = express();
 require("dotenv").config();
 const fs = require("fs");
 const cors = require("cors");
-const { MongoClient, ObjectId } = require("mongodb");
-
+const { MongoClient } = require("mongodb");
 const multer = require("multer");
 const path = require("path");
 const bcrypt = require("bcryptjs");
 const { v4: uuidv4 } = require("uuid");
 const nodemailer = require("nodemailer");
 const jwt = require("jsonwebtoken");
+const { ObjectId } = require('mongodb');
+
 app.use(cors());
 app.use(express.json());
 
@@ -64,82 +65,109 @@ async function run() {
     const usersCollection = database.collection("aeawUsers");
     const articlesCollection = database.collection("articles");
     // const adminCollection = database.collection("admin");
-//to get the information od logged in users
-    app.get("/user", authenticateToken, async (req, res) => {
+    app.get("/aeawUsers/:userId", async (req, res) => {
       try {
-        const userId = req.user.userId;
-
-        const user = await usersCollection.findOne({
-          _id: new ObjectId(userId),
-        });
+        const userId = req.params.userId;
+        const user = await usersCollection.findOne({ _id: ObjectId(userId) });
         if (!user) {
           return res.status(404).json({ error: "User not found" });
         }
-
-        // Return the user data
-        res.json(user);
-      } catch (err) {
-        console.error("Error retrieving user data:", err);
-        res.status(500).json({ message: "An error occurred" });
-      }
-    });
-    //update user info
-    app.put("/user", authenticateToken, async (req, res) => {
-      try {
-        const userId = req.user.userId;
-        const { name, address, email, phone, experience, education, country } =
-          req.body;
-
-        const updatedUser = await usersCollection.findOneAndUpdate(
-          { _id: new ObjectId(userId) },
-          {
-            $set: {
-              name,
-              address,
-              email,
-              phone,
-              experience,
-              education,
-              country,
-            },
-          },
-          { returnOriginal: false }
-        );
-
-        if (!updatedUser.value) {
-          return res.status(404).json({ error: "User not found" });
-        }
-
-        // Return the updated user data
+        // Extract the necessary user information to send to the frontend
+        const { name, address, email, phone, experience, education, country } = user;
         res.json({
-          message: "User data updated successfully",
-          user: updatedUser.value,
+          name,
+          address,
+          email,
+          phone,
+          experience,
+          education,
+          country,
         });
       } catch (err) {
-        console.error("Error updating user data:", err);
-
+        console.error("Error retrieving user information:", err);
         res.status(500).json({ message: "An error occurred" });
       }
     });
+    
 
-    // Middleware function to authenticate the token
-    function authenticateToken(req, res, next) {
-      const token = req.headers.authorization;
+    //article section starts
+    // to get the articles
+    app.get("/articles", async (req, res) => {
+      const cursor = articlesCollection.find({});
+      const articles = await cursor.toArray();
+      res.send(articles);
+    });
 
-      if (!token) {
-        return res.status(401).json({ error: "No token provided" });
+    // Serve the files statically from the 'articles' directory
+    app.use("/articles", express.static(path.join(__dirname, "articles")));
+    //  to get the cv
+    app.get("/articles/cv/:filename", (req, res) => {
+      const { filename } = req.params;
+      const filePath = path.join(__dirname, "articles", filename);
+
+      if (!fs.existsSync(filePath)) {
+        console.error("File not found");
+        return res.status(404).send({ message: "File not found" });
       }
 
-      try {
-        const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decodedToken;
-        next();
-      } catch (err) {
-        console.error("Error authenticating token:", err);
-        res.status(403).json({ error: "Invalid token" });
+      res.contentType("application/pdf");
+      fs.createReadStream(filePath).pipe(res);
+    });
+    //  get the pdf
+    app.get("/articles/pdf/:filename", (req, res) => {
+      const { filename } = req.params;
+      const filePath = path.join(__dirname, "articles", filename);
+
+      if (!fs.existsSync(filePath)) {
+        console.error("File not found");
+        return res.status(404).send({ message: "File not found" });
       }
-    }
-    //register the user
+
+      res.contentType("application/pdf");
+      fs.createReadStream(filePath).pipe(res);
+    });
+    // post the articles
+    app.post("/articles", (req, res) => {
+      upload(req, res, async (error) => {
+        if (error) {
+          console.error(error);
+          return res.status(400).send({ message: "Error uploading files" });
+        }
+
+        const { name, email } = req.body;
+        const imageFile = req.files["image"][0];
+        const pdfFile = req.files["pdf"][0];
+        const cvfFile = req.files["cv"][0];
+
+        // Check if files exist before uploading
+        const imageFilePath = path.join(
+          __dirname,
+          "articles/",
+          imageFile.filename
+        );
+        const pdfFilePath = path.join(__dirname, "articles/", pdfFile.filename);
+        const cvfFilePath = path.join(__dirname, "articles/", cvfFile.filename);
+
+        if (!fs.existsSync(imageFilePath) || !fs.existsSync(pdfFilePath)) {
+          console.error("One or more files not found");
+          return res
+            .status(400)
+            .send({ message: "One or more files not found" });
+        }
+
+        const article = {
+          name,
+          email,
+          image: imageFile.filename,
+          pdf: pdfFile.filename,
+          cv: cvfFile.filename,
+        };
+
+        const result = await articlesCollection.insertOne(article);
+        console.log(result);
+        res.json(result);
+      });
+    });
     app.post("/register", async (req, res) => {
       try {
         const {
@@ -247,6 +275,89 @@ async function run() {
 
       res.json({ message: "Login successfully", token });
     });
+    // Send reset password email
+    // app.post("/forgot-password", async (req, res) => {
+    //   try {
+    //     const { email } = req.body;
+
+    //     // Find user by email
+    //     const user = await usersCollection.findOne({ email });
+    //     if (!user) {
+    //       return res.status(404).json({ error: "User not found" });
+    //     }
+
+    //     // Create reset token
+    //     const resetToken = crypto.randomBytes(20).toString("hex");
+    //     // Set an expiration time for the reset token (e.g., 1 hour)
+    //     const resetTokenExpiration = Date.now() + 3600000; // 1 hour from now
+
+    //     // Update user's reset token and expiration time in the database
+    //     await usersCollection.updateOne(
+    //       { _id: user._id },
+    //       { $set: { resetToken, resetTokenExpiration } }
+    //     );
+
+    //     // Send reset password email
+    //     const transporter = nodemailer.createTransport({
+    //       // Configure your email provider settings
+    //       // ...
+    //     });
+    //     const resetPasswordLink = `http://localhost:8000/reset-password?token=${resetToken}`;
+    //     const mailOptions = {
+    //       from: "aeaw01@aeaw.net",
+    //       to: email,
+    //       subject: "Reset Password",
+    //       html: `
+    //     <p>You have requested to reset your password. Please click the link below to create a new password:</p>
+    //     <a href="${resetPasswordLink}">${resetPasswordLink}</a>
+    //   `,
+    //     };
+    //     await transporter.sendMail(mailOptions);
+
+    //     res.json({ message: "Reset password email sent" });
+    //   } catch (error) {
+    //     console.error("Error sending reset password email:", error);
+    //     res.status(500).json({ message: "An error occurred" });
+    //   }
+    // });
+
+    // // Handle reset password form submission
+    // app.post("/reset-password", async (req, res) => {
+    //   try {
+    //     const { token, password } = req.body;
+
+    //     // Find user by reset token and check if it's still valid
+    //     const user = await usersCollection.findOne({
+    //       resetToken: token,
+    //       resetTokenExpiration: { $gt: Date.now() },
+    //     });
+    //     if (!user) {
+    //       return res
+    //         .status(404)
+    //         .json({ error: "Invalid or expired reset token" });
+    //     }
+
+    //     // Hash the new password
+    //     const hashedPassword = await bcrypt.hash(password, 10);
+
+    //     // Update user's password and reset token in the database
+    //     await usersCollection.updateOne(
+    //       { _id: user._id },
+    //       {
+    //         $set: {
+    //           password: hashedPassword,
+    //           resetToken: null,
+    //           resetTokenExpiration: null,
+    //         },
+    //       }
+    //     );
+
+    //     res.json({ message: "Password reset successful" });
+    //   } catch (error) {
+    //     console.error("Error resetting password:", error);
+    //     res.status(500).json({ message: "An error occurred" });
+    //   }
+    // });
 
     // Login route for the admin
     app.post("/admin/login", (req, res) => {
@@ -259,85 +370,6 @@ async function run() {
         res.status(401).json({ error: "Invalid credentials!" });
       }
     });
-    //article section starts
-    // to get the articles
-    app.get("/articles", async (req, res) => {
-      const cursor = articlesCollection.find({});
-      const articles = await cursor.toArray();
-      res.send(articles);
-    });
-
-    // Serve the files statically from the 'articles' directory
-    app.use("/articles", express.static(path.join(__dirname, "articles")));
-    //  to get the cv
-    app.get("/articles/cv/:filename", (req, res) => {
-      const { filename } = req.params;
-      const filePath = path.join(__dirname, "articles", filename);
-
-      if (!fs.existsSync(filePath)) {
-        console.error("File not found");
-        return res.status(404).send({ message: "File not found" });
-      }
-
-      res.contentType("application/pdf");
-      fs.createReadStream(filePath).pipe(res);
-    });
-    //  get the pdf
-    app.get("/articles/pdf/:filename", (req, res) => {
-      const { filename } = req.params;
-      const filePath = path.join(__dirname, "articles", filename);
-
-      if (!fs.existsSync(filePath)) {
-        console.error("File not found");
-        return res.status(404).send({ message: "File not found" });
-      }
-
-      res.contentType("application/pdf");
-      fs.createReadStream(filePath).pipe(res);
-    });
-    // post the articles
-    app.post("/articles", (req, res) => {
-      upload(req, res, async (error) => {
-        if (error) {
-          console.error(error);
-          return res.status(400).send({ message: "Error uploading files" });
-        }
-
-        const { name, email } = req.body;
-        const imageFile = req.files["image"][0];
-        const pdfFile = req.files["pdf"][0];
-        const cvfFile = req.files["cv"][0];
-
-        // Check if files exist before uploading
-        const imageFilePath = path.join(
-          __dirname,
-          "articles/",
-          imageFile.filename
-        );
-        const pdfFilePath = path.join(__dirname, "articles/", pdfFile.filename);
-        const cvfFilePath = path.join(__dirname, "articles/", cvfFile.filename);
-
-        if (!fs.existsSync(imageFilePath) || !fs.existsSync(pdfFilePath)) {
-          console.error("One or more files not found");
-          return res
-            .status(400)
-            .send({ message: "One or more files not found" });
-        }
-
-        const article = {
-          name,
-          email,
-          image: imageFile.filename,
-          pdf: pdfFile.filename,
-          cv: cvfFile.filename,
-        };
-
-        const result = await articlesCollection.insertOne(article);
-        console.log(result);
-        res.json(result);
-      });
-    });
-  
     //logout the user
 
     app.post("/logout", (req, res) => {

@@ -3,18 +3,19 @@ const app = express();
 require("dotenv").config();
 const fs = require("fs");
 const cors = require("cors");
-const { MongoClient, ObjectId } = require("mongodb");
-
+const { MongoClient } = require("mongodb");
 const multer = require("multer");
 const path = require("path");
 const bcrypt = require("bcryptjs");
 const { v4: uuidv4 } = require("uuid");
 const nodemailer = require("nodemailer");
-const jwt = require("jsonwebtoken");
+const jwt = require('jsonwebtoken');
+
 app.use(cors());
 app.use(express.json());
 
-// mongodb connection .
+// mogodb connection .
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.yhxur.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
   useNewUrlParser: true,
@@ -23,6 +24,7 @@ const client = new MongoClient(uri, {
 
 const port = process.env.PORT || 8000;
 let loggedInUsers = {}; // Store logged in users
+
 // Multer configuration
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -51,214 +53,18 @@ const transporter = nodemailer.createTransport({
     pass: "^y?)56=^~b]6",
   },
 });
-
+//
 app.get("/", (req, res) => {
   res.send("Running away site");
 });
 
-// All functionality starts
 async function run() {
   try {
     await client.connect();
     const database = client.db("aeaw");
-    const usersCollection = database.collection("aeawUsers");
     const articlesCollection = database.collection("articles");
-    // const adminCollection = database.collection("admin");
-//to get the information od logged in users
-    app.get("/user", authenticateToken, async (req, res) => {
-      try {
-        const userId = req.user.userId;
-
-        const user = await usersCollection.findOne({
-          _id: new ObjectId(userId),
-        });
-        if (!user) {
-          return res.status(404).json({ error: "User not found" });
-        }
-
-        // Return the user data
-        res.json(user);
-      } catch (err) {
-        console.error("Error retrieving user data:", err);
-        res.status(500).json({ message: "An error occurred" });
-      }
-    });
-    //update user info
-    app.put("/user", authenticateToken, async (req, res) => {
-      try {
-        const userId = req.user.userId;
-        const { name, address, email, phone, experience, education, country } =
-          req.body;
-
-        const updatedUser = await usersCollection.findOneAndUpdate(
-          { _id: new ObjectId(userId) },
-          {
-            $set: {
-              name,
-              address,
-              email,
-              phone,
-              experience,
-              education,
-              country,
-            },
-          },
-          { returnOriginal: false }
-        );
-
-        if (!updatedUser.value) {
-          return res.status(404).json({ error: "User not found" });
-        }
-
-        // Return the updated user data
-        res.json({
-          message: "User data updated successfully",
-          user: updatedUser.value,
-        });
-      } catch (err) {
-        console.error("Error updating user data:", err);
-
-        res.status(500).json({ message: "An error occurred" });
-      }
-    });
-
-    // Middleware function to authenticate the token
-    function authenticateToken(req, res, next) {
-      const token = req.headers.authorization;
-
-      if (!token) {
-        return res.status(401).json({ error: "No token provided" });
-      }
-
-      try {
-        const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decodedToken;
-        next();
-      } catch (err) {
-        console.error("Error authenticating token:", err);
-        res.status(403).json({ error: "Invalid token" });
-      }
-    }
-    //register the user
-    app.post("/register", async (req, res) => {
-      try {
-        const {
-          name,
-          address,
-          email,
-          phone,
-          password,
-          experience,
-          education,
-          country,
-          role,
-        } = req.body;
-        const existingUser = await usersCollection.findOne({ email });
-        if (existingUser) {
-          return res.status(409).json({ error: "User already exists" });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const verificationToken = uuidv4();
-        const user = {
-          name,
-          address,
-          email,
-          phone,
-          password: hashedPassword,
-          role,
-          experience,
-          education,
-          country,
-          verificationToken,
-          verified: false,
-        };
-        const result = await usersCollection.insertOne(user);
-        const verificationLink = `http://localhost:8000/verify?token=${verificationToken}`;
-        const mailOptions = {
-          from: "aeaw01@aeaw.net",
-          to: email,
-          subject: "Email Verification",
-          html: `
-            <p>Thank you for registering on our awae website. Please verify your email by clicking the following link:</p>
-            <a href="${verificationLink}">${verificationLink}</a>
-          `,
-        };
-        await transporter.sendMail(mailOptions);
-
-        // Generate JWT token
-        const token = jwt.sign(
-          { userId: result.insertedId },
-          process.env.JWT_SECRET,
-          { expiresIn: "1d" }
-        );
-
-        res.json({
-          message:
-            "User registered successfully. A verification email has been sent.",
-          userId: result.insertedId,
-          token: token,
-        });
-      } catch (err) {
-        console.error("Error registering user:", err);
-        res.status(500).json({ message: "An error occurred" });
-      }
-    });
-    //verify the user
-    app.get("/verify", async (req, res) => {
-      try {
-        const { token } = req.query;
-        // Find the user with the matching verification token
-        const user = await usersCollection.findOne({
-          verificationToken: token,
-        });
-
-        if (!user) {
-          return res.status(404).json({ error: "Invalid verification token" });
-        }
-        // Update the user's verification status in the database
-        await usersCollection.updateOne(
-          { _id: user._id },
-          { $set: { verified: true, verificationToken: null } }
-        );
-        res.send(
-          'Congratulations! Your email is verified, and now you can go to the AEAW website. Please click <a href="http://localhost:3000/">here</a> to visit the homepage.'
-        );
-      } catch (err) {
-        console.error("Error verifying email:", err);
-        res.status(500).json({ message: "An error occurred" });
-      }
-    });
-    //user login
-    app.post("/login", async (req, res) => {
-      const { email, password } = req.body;
-      const user = await usersCollection.findOne({ email });
-      if (!user) {
-        return res.status(401).json({ error: "Invalid username or password" });
-      }
-      const passwordMatch = await bcrypt.compare(password, user.password);
-      if (!passwordMatch) {
-        return res.status(401).json({ error: "Invalid username or password" });
-      }
-      // Generate JWT token
-      const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-        expiresIn: "1d",
-      });
-
-      res.json({ message: "Login successfully", token });
-    });
-
-    // Login route for the admin
-    app.post("/admin/login", (req, res) => {
-      const { email, password } = req.body;
-
-      // Check if the provided email and password match the admin credentials
-      if (email === "admin@admin.com" && password === "admin1") {
-        res.status(200).json({ message: "Login successful!" });
-      } else {
-        res.status(401).json({ error: "Invalid credentials!" });
-      }
-    });
+    const usersCollection = database.collection("aeawUsers");
+    const adminCollection = database.collection("admin");
     //article section starts
     // to get the articles
     app.get("/articles", async (req, res) => {
@@ -337,7 +143,177 @@ async function run() {
         res.json(result);
       });
     });
-  
+    //end of articles section
+
+    //user reg
+    // app.post("/register", async (req, res) => {
+    //   try {
+    //     const {
+    //       name,
+    //       address,
+    //       email,
+    //       phone,
+    //       password,
+    //       experience,
+    //       education,
+    //       country,
+    //       role,
+    //     } = req.body;
+    //     const existingUser = await usersCollection.findOne({ email });
+    //     if (existingUser) {
+    //       return res.status(409).json({ error: "User already exists" });
+    //     }
+    //     const hashedPassword = await bcrypt.hash(password, 10);
+    //     const user = {
+    //       name,
+    //       address,
+    //       email,
+    //       phone,
+    //       password: hashedPassword,
+    //       role, // Set the user role
+    //       experience,
+    //       education,
+    //       country,
+    //     };
+
+    //     // Store the user object in the database
+    //     const result = await usersCollection.insertOne(user);
+    //     res.json({
+    //       message: "User registered successfully",
+    //       userId: result.insertedId,
+    //     });
+    //   } catch (err) {
+    //     console.error("Error registering user:", err);
+    //     res.status(500).json({ message: "An error occurred" });
+    //   }
+    // });
+
+    app.post("/register", async (req, res) => {
+      try {
+        const {
+          name,
+          address,
+          email,
+          phone,
+          password,
+          experience,
+          education,
+          country,
+          role,
+        } = req.body;
+        const existingUser = await usersCollection.findOne({ email });
+        if (existingUser) {
+          return res.status(409).json({ error: "User already exists" });
+        }
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const verificationToken = uuidv4();
+        const user = {
+          name,
+          address,
+          email,
+          phone,
+          password: hashedPassword,
+          role,
+          experience,
+          education,
+          country,
+          verificationToken,
+          verified: false,
+        };
+        const result = await usersCollection.insertOne(user);
+        const verificationLink = `http://localhost:8000/verify?token=${verificationToken}`;
+        const mailOptions = {
+          from: "aeaw01@aeaw.net",
+          to: email,
+          subject: "Email Verification",
+          html: `
+        <p>Thank you for registering on our awae website. Please verify your email by clicking the following link:</p>
+        <a href="${verificationLink}">${verificationLink}</a>
+      `,
+        };
+        await transporter.sendMail(mailOptions);
+        res.json({
+          message:
+            "User registered successfully. A verification email has been sent.",
+          userId: result.insertedId,
+        });
+      } catch (err) {
+        console.error("Error registering user:", err);
+        res.status(500).json({ message: "An error occurred" });
+      }
+    });
+    app.get("/verify", async (req, res) => {
+      try {
+        const { token } = req.query;
+
+        // Find the user with the matching verification token
+        const user = await usersCollection.findOne({
+          verificationToken: token,
+        });
+
+        if (!user) {
+          return res.status(404).json({ error: "Invalid verification token" });
+        }
+
+        // Update the user's verification status in the database
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { $set: { verified: true, verificationToken: null } }
+        );
+
+        res.send(
+          'Congratulations! Your email is verified, and now you can go to the AEAW website. Please click <a href="http://localhost:3000/">here</a> to visit the homepage.'
+        );
+      } catch (err) {
+        console.error("Error verifying email:", err);
+        res.status(500).json({ message: "An error occurred" });
+      }
+    });
+    // //user login
+    // app.post("/login", async (req, res) => {
+    //   const { email, password } = req.body;
+    //   const user = await usersCollection.findOne({ email });
+    //   if (!user) {
+    //     return res.status(401).json({ error: "Invalid username or password" });
+    //   }
+    //   const passwordMatch = await bcrypt.compare(password, user.password);
+    //   if (!passwordMatch) {
+    //     return res.status(401).json({ error: "Invalid username or password" });
+    //   }
+    //   const token = generateToken(); // Generate a unique token for the user
+    //   loggedInUsers[token] = user;
+    //   res.json({ message: "Login successfully", token });
+    // });
+    app.post("/login", async (req, res) => {
+      const { email, password } = req.body;
+      const user = await usersCollection.findOne({ email });
+      if (!user) {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+      const passwordMatch = await bcrypt.compare(password, user.password);
+      if (!passwordMatch) {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+      // Generate JWT token
+      const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    
+      res.cookie('token', token, { httpOnly: true }); // Set the token as a cookie
+    
+      res.json({ message: "Login successfully", token });
+    });
+    
+    // Login route for the admin
+    app.post("/admin/login", (req, res) => {
+      const { email, password } = req.body;
+
+      // Check if the provided email and password match the admin credentials
+      if (email === "admin@admin.com" && password === "admin1") {
+        res.status(200).json({ message: "Login successful!" });
+      } else {
+        res.status(401).json({ error: "Invalid credentials!" });
+      }
+    });
+
     //logout the user
 
     app.post("/logout", (req, res) => {
@@ -364,4 +340,5 @@ function generateToken() {
   }
   return token;
 }
+
 run().catch(console.dir);
