@@ -43,12 +43,12 @@ const upload = multer({ storage: storage }).fields([
 
 // Nodemailer configuration
 const transporter = nodemailer.createTransport({
-  host: "mail.aeaw.net",
-  port: 465,
-  secure: true,
+  host: "",
+  // port: ,
+  // secure:
   auth: {
-    user: "aeaw01@aeaw.net",
-    pass: "^y?)56=^~b]6",
+    user: "",
+    pass: "",
   },
 });
 
