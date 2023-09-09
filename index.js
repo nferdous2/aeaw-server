@@ -259,6 +259,79 @@ async function run() {
         res.status(401).json({ error: "Invalid credentials!" });
       }
     });
+ 
+    //
+    app.post("/forgot-password", async (req, res) => {
+      const { email } = req.body;
+    
+      try {
+        const user = await usersCollection.findOne({ email });
+    
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+    
+        // Generate a reset token and update the user document in the database
+        const resetToken = uuidv4(); // Use UUID to generate a unique reset token
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { $set: { resetToken } }
+        );
+    
+        // Send the password reset email to the user
+        const resetLink = `http://localhost:8000/reset-password?token=${resetToken}`;
+        const mailOptions = {
+          from: "aeaw01@aeaw.net",
+          to: email,
+          subject: "Password Reset",
+          html: `
+            <p>You have requested a password reset. Click the following link to reset your password:</p>
+            <a href="${resetLink}">${resetLink}</a>
+          `,
+        };
+    
+        await transporter.sendMail(mailOptions);
+    
+        res.json({ message: "Password reset email sent successfully" });
+      } catch (error) {
+        console.error("Error sending reset password email:", error);
+        res.status(500).json({ error: "An error occurred while sending the email" });
+      }
+    });
+    
+    app.get("/reset-password", (req, res) => {
+      res.redirect("http://localhost:3000/newpass");
+    });
+    
+    app.post("/reset-password", async (req, res) => {
+      const { token, password } = req.body;
+    
+      try {
+        // Validate the token and retrieve the user associated with it
+        const user = await usersCollection.findOne({ resetToken: token });
+    
+        if (!user) {
+          return res.status(404).json({ error: "Invalid or expired token" });
+        }
+    
+        // Hash the new password
+        const hashedPassword = await bcrypt.hash(password, 10);
+    
+        // Update the user's password in the database
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { $set: { password: hashedPassword }, $unset: { resetToken: "" } } // Remove the resetToken field from the user's document
+        );
+    
+        res.json({ message: "Password reset successful" });
+      } catch (error) {
+        console.error("Error resetting password:", error);
+        res.status(500).json({ error: "An error occurred while resetting the password" });
+      }
+    });
+    
+
+    
     //article section starts
     // to get the articles
     app.get("/articles", async (req, res) => {
