@@ -4,7 +4,6 @@ require("dotenv").config();
 const fs = require("fs");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
-
 const multer = require("multer");
 const path = require("path");
 const bcrypt = require("bcryptjs");
@@ -40,6 +39,8 @@ const upload = multer({ storage: storage }).fields([
   { name: "pdf", maxCount: 1 },
   { name: "cv", maxCount: 1 },
 ]);
+// // Nodemailer configuration
+
 const transporter = nodemailer.createTransport({
   host: "mail.aeaw.net",
   port: 465,
@@ -49,21 +50,11 @@ const transporter = nodemailer.createTransport({
     pass: "^y?)56=^~b]6",
   },
 });
-// // Nodemailer configuration
-// const transporter = nodemailer.createTransport({
-//   host: "",
-//   // port: ,
-//   // secure:
-//   auth: {
-//     user: "",
-//     pass: "",
-//   },
-// });
+
 
 app.get("/", (req, res) => {
   res.send("Running away site");
 });
-
 // All functionality starts
 async function run() {
   try {
@@ -216,7 +207,9 @@ async function run() {
     app.get("/verify", async (req, res) => {
       try {
         const { token } = req.query;
+        
         // Find the user with the matching verification token
+
         const user = await usersCollection.findOne({
           verificationToken: token,
         });
