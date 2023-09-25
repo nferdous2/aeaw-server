@@ -40,17 +40,25 @@ const upload = multer({ storage: storage }).fields([
   { name: "pdf", maxCount: 1 },
   { name: "cv", maxCount: 1 },
 ]);
-
-// Nodemailer configuration
 const transporter = nodemailer.createTransport({
-  host: "",
-  // port: ,
-  // secure:
+  host: "mail.aeaw.net",
+  port: 465,
+  secure: true,
   auth: {
-    user: "",
-    pass: "",
+    user: "aeaw01@aeaw.net",
+    pass: "^y?)56=^~b]6",
   },
 });
+// // Nodemailer configuration
+// const transporter = nodemailer.createTransport({
+//   host: "",
+//   // port: ,
+//   // secure:
+//   auth: {
+//     user: "",
+//     pass: "",
+//   },
+// });
 
 app.get("/", (req, res) => {
   res.send("Running away site");
